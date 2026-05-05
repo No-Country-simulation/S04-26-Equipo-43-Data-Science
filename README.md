@@ -56,8 +56,3 @@ Visualización diseñada para la toma de decisiones del equipo de producto:
 
 ---
 
-## 🛠️ Herramientas de Antigravity
-Este proyecto cuenta con una configuración completa de agentes:
-- `/alinear-contexto`: Para mantener la consistencia técnica.
-- `arquitectura-nlp.md`: Reglas específicas de modelado.
-- `stack-tecnologico.md`: Seguimiento de dependencias (Transformers, Scikit-learn).
