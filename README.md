@@ -7,7 +7,6 @@
 ## 📁 Estructura del Proyecto
 
 ```
-├── .agent/                             # Cerebro de Antigravity (Skills, Rules, Workflows)
 ├── data/                               # Corpus de conversaciones (CSV/Parquet)
 ├── src/
 │   ├── core/                           # Motores de NLP y Clasificación
