@@ -82,9 +82,8 @@ class FeatureAggregator:
         final_df['profanity_present'] = final_df.join(df.groupby('id_conv')['has_profanity'].any()).iloc[:, -1]
         final_df['escalation_requested'] = final_df.join(df.groupby('id_conv')['has_escalation'].any()).iloc[:, -1]
 
-        # Asegurar que tenemos las 47 features (o aproximarnos al máximo posible en este MVP)
-        # Nota: algunas features como 'is_irrelevant_dst' requieren lógica de negocio más profunda
-        # que se integrará en la fase de refinamiento.
+        # Asegurar que id_conv sea una columna y no solo el índice
+        final_df = final_df.reset_index()
         
         logger.info(f"Matriz de características generada: {final_df.shape}")
         return final_df

@@ -1,0 +1,15 @@
+{
+  "rules": [
+    "IDIOMA: Todas las variables, funciones y comentarios deben estar en español usando snake_case con formato variable_Uno",
+    "SIMPLICIDAD: Código directo sin try-catch redundantes. Solo manejar errores críticos de forma simple",
+    "SIN TESTS: No crear archivos de test. Enfoque directo en funcionalidad",
+    "LOGGING OBLIGATORIO: Implementar logs en cada función importante usando diferentes niveles:",
+    "  - LOG_DEBUG: Para desarrolladores, detalles técnicos",
+    "  - LOG_INFO: Secuencia de ejecución comprensible",
+    "  - LOG_WARN: Situaciones inesperadas pero manejables",
+    "  - LOG_ERROR: Errores críticos",
+    "RESPONSIVE: Todo componente UI debe funcionar en desktop (1920px) y móvil (375px)",
+    "DOCUMENTACIÓN: Cada función debe tener un comentario breve explicando su propósito",
+    "ESTRUCTURA: Mantener archivos pequeños y enfocados en una sola responsabilidad"
+  ]
+}
