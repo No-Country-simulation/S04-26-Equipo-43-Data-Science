@@ -1,4 +1,9 @@
 import os
+import sys
+
+# Añadir la raíz del proyecto al path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 from huggingface_hub import HfApi
 from dotenv import load_dotenv
 from src.utils.logger import logger
@@ -25,6 +30,13 @@ def upload_to_huggingface():
     logger.info("Iniciando versionado en Hugging Face Hub...")
 
     try:
+        # Asegurar que los repositorios existan (los crea como privados si no existen)
+        logger.info(f"Verificando/creando repositorio de modelo: {MODEL_REPO}")
+        api.create_repo(repo_id=MODEL_REPO, repo_type="model", private=True, exist_ok=True)
+        
+        logger.info(f"Verificando/creando repositorio de datos: {DATA_REPO}")
+        api.create_repo(repo_id=DATA_REPO, repo_type="dataset", private=True, exist_ok=True)
+
         # 1. Subir el Modelo LightGBM
         model_path = "models/lgbm_model.pkl"
         if os.path.exists(model_path):
