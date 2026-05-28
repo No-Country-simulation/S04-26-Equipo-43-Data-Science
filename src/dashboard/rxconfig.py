@@ -7,10 +7,10 @@ config = rx.Config(
         rx.plugins.TailwindV4Plugin(),
         rx.plugins.RadixThemesPlugin(
             theme=rx.theme(
-                appearance="light",
+                appearance="dark",
                 has_background=True,
                 radius="medium",
-                accent_color="gray",
+                accent_color="cyan",
             )
         )
     ]
