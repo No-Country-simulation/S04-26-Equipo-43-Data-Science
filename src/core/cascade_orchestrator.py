@@ -48,6 +48,7 @@ class CascadeOrchestrator:
             prob = row['frustration_probability']
             # id_conv podría estar en el índice o en una columna
             id_conv = idx if 'id_conv' not in row else row['id_conv']
+            history = full_histories.get(id_conv, "Historial no disponible")
             
             # Caso A: Confianza Alta en NO-FRUSTRACIÓN (Zona Segura)
             if prob < self.tau_low:
@@ -55,7 +56,8 @@ class CascadeOrchestrator:
                     "final_is_frustrated": False,
                     "layer_used": "fast",
                     "confidence": 1 - prob,
-                    "reasoning": "Fast Layer: Low probability"
+                    "reasoning": "Fast Layer: Low probability",
+                    "history": history
                 }
             
             # Caso B: Zona Gris o Alta Probabilidad -> Escalar a LLM (Capa Profunda)
@@ -63,7 +65,6 @@ class CascadeOrchestrator:
                 layer = "deep" if prob > self.tau_high else "gray_zone_escalation"
                 logger.info(f"Escalando caso {id_conv} (Prob: {prob:.2f}) a Capa Profunda...")
                 
-                history = full_histories.get(id_conv, "Historial no disponible")
                 # Pasamos las señales de la Capa Rápida como contexto
                 quick_signals = str({k: v for k, v in row.items() if k not in ['id_conv', 'frustration_probability']})
                 
@@ -77,7 +78,8 @@ class CascadeOrchestrator:
                     "final_is_frustrated": llm_result.get("is_frustrated"),
                     "layer_used": "deep",
                     "confidence": llm_result.get("confidence_score"),
-                    "reasoning": llm_result.get("reasoning")
+                    "reasoning": llm_result.get("reasoning"),
+                    "history": history
                 }
             
             final_decisions.append(decision)
@@ -86,5 +88,6 @@ class CascadeOrchestrator:
         results['final_is_frustrated'] = [d['final_is_frustrated'] for d in final_decisions]
         results['layer_used'] = [d['layer_used'] for d in final_decisions]
         results['final_reasoning'] = [d['reasoning'] for d in final_decisions]
+        results['conversation_history'] = [d['history'] for d in final_decisions]
         
         return results

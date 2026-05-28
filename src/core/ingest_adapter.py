@@ -14,7 +14,7 @@ class ConversationSchema(pa.DataFrameModel):
     mensaje: Series[str] = pa.Field(nullable=True, coerce=True)
 
     class Config:
-        strict = True
+        strict = "filter"  # Descarta automáticamente columnas irrelevantes
         coerce = True
 
 class IngestAdapter:
@@ -31,35 +31,60 @@ class IngestAdapter:
         os.makedirs(os.path.dirname(self.dlq_path), exist_ok=True)
 
     def _save_to_dlq(self, df: pd.DataFrame, reason: str):
-        """Guarda registros fallidos en la cola de mensajes muertos."""
+        """Guarda registros fallidos en la cola de mensajes muertos de forma resiliente."""
         df = df.copy()
-        df["error_reason"] = reason
-        df["ingestion_timestamp"] = pd.Timestamp.now()
+        
+        # Forzar a string todas las columnas para evitar conflictos de tipo en PyArrow
+        for col in df.columns:
+            df[col] = df[col].astype(str)
+            
+        df["error_reason"] = str(reason)
+        df["ingestion_timestamp"] = str(pd.Timestamp.now())
         
         if os.path.exists(self.dlq_path):
-            existing_dlq = pd.read_parquet(self.dlq_path)
-            df = pd.concat([existing_dlq, df], ignore_index=True)
-        
+            try:
+                existing_dlq = pd.read_parquet(self.dlq_path)
+                for col in existing_dlq.columns:
+                    existing_dlq[col] = existing_dlq[col].astype(str)
+                df = pd.concat([existing_dlq, df], ignore_index=True)
+            except Exception as e:
+                logger.warning(f"Error concatenando con DLQ existente: {e}. Recreando archivo.")
+                
         df.to_parquet(self.dlq_path, index=False)
         logger.warning(f"Se han enviado {len(df)} registros al DLQ: {reason}")
 
     def _apply_heuristics(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Aplica heurísticas para normalizar roles y mensajes."""
-        # Detección de roles si no están claros (ejemplo: 'usuario' -> 'user', 'asistente' -> 'bot')
+        """Aplica heurísticas para normalizar nombres de columnas, roles y mensajes de forma agnóstica."""
+        df = df.copy()
+        
+        # 1. Normalizar nombres de columnas a minúsculas y sin espacios
+        df.columns = df.columns.str.strip().str.lower()
+        
+        # 2. Mapear columnas alternativas a las del estándar
+        col_mappings = {
+            'id_conversacion': 'id_conv', 'conversation_id': 'id_conv', 'id_charla': 'id_conv', 'session_id': 'id_conv',
+            'turn': 'turno', 'secuencia': 'turno', 'sequence': 'turno', 'msg_order': 'turno',
+            'role': 'rol', 'sender': 'rol', 'speaker': 'rol', 'tipo_usuario': 'rol',
+            'message': 'mensaje', 'text': 'mensaje', 'texto': 'mensaje', 'content': 'mensaje', 'msg': 'mensaje'
+        }
+        rename_dict = {col: col_mappings[col] for col in df.columns if col in col_mappings}
+        if rename_dict:
+            df = df.rename(columns=rename_dict)
+            logger.info(f"Columnas mapeadas heurísticamente: {rename_dict}")
+            
+        # 3. Detección y normalización de roles
         if 'rol' in df.columns:
             role_map = {
                 'usuario': 'user', 'customer': 'user', 'client': 'user',
                 'asistente': 'bot', 'assistant': 'bot', 'agent': 'bot'
             }
-            df['rol'] = df['rol'].str.lower().replace(role_map)
+            df['rol'] = df['rol'].astype(str).str.lower().str.strip().replace(role_map)
         else:
-            # Heurística simple: si no hay columna rol, pero hay id_conv y turno,
-            # podríamos intentar inferir, pero por ahora marcamos como error si falta.
-            logger.error("Columna 'rol' ausente y no se puede inferir con seguridad.")
+            logger.error("Columna 'rol' ausente en el archivo cargado.")
         
-        # Forzar UTF-8 y limpiar strings
+        # 4. Sanitizar y limpiar mensajes
         if 'mensaje' in df.columns:
-            df['mensaje'] = df['mensaje'].astype(str).str.strip()
+            df['mensaje'] = df['mensaje'].fillna("").astype(str).str.strip()
             
         return df
 

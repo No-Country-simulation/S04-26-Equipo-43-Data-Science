@@ -56,10 +56,10 @@ def test_full_cascade():
     # Usamos tau_low alto para forzar escalación en el test si no hay modelo entrenado con estos datos
     orchestrator = CascadeOrchestrator(tau_low=0.1, llm_provider="gemini")
     
-    print("\n--- 🌊 Iniciando Inferencia en Cascada ---")
+    print("\n--- Iniciando Inferencia en Cascada ---")
     results = orchestrator.run_inference(df_features, histories)
     
-    print("\n--- 📊 Resultados Finales ---")
+    print("\n--- Resultados Finales ---")
     output_cols = ['id_conv', 'frustration_probability', 'final_is_frustrated', 'layer_used', 'final_reasoning']
     print(results[output_cols])
 
@@ -68,4 +68,4 @@ if __name__ == "__main__":
     if os.getenv("GEMINI_API_KEY") or os.getenv("OPENROUTER_API_KEY"):
         test_full_cascade()
     else:
-        print("⚠️  Skipping test: No API keys found in .env")
+        print("Skipping test: No API keys found in .env")
