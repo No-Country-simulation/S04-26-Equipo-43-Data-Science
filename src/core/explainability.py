@@ -6,6 +6,34 @@ import os
 from src.utils.logger import logger
 from typing import Dict, Any, List, Tuple
 
+# Diccionario de traducción de características al español para la visualización (SHAP y UI)
+FEATURE_TRANSLATIONS = {
+    'total_turns': 'Total de Turnos',
+    'user_message_count': 'Mensajes del Usuario',
+    'bot_fallback_count': 'Fallbacks del Bot (No Entendió)',
+    'bot_reboot_count': 'Reboots del Bot',
+    'bot_apology_count': 'Disculpas del Bot',
+    'bot_capability_error_count': 'Errores de Capacidad del Bot',
+    'user_repetition_count': 'Repeticiones del Usuario',
+    'user_repetition_ratio': 'Ratio de Repetición',
+    'uppercase_messages_count': 'Mensajes en Mayúsculas',
+    'max_consecutive_user_msgs': 'Máx Mensajes Seguidos de Usuario',
+    'avg_user_message_length': 'Longitud Promedio Mensajes',
+    'message_length_variance': 'Variabilidad de Longitud de Mensajes',
+    'negation_count': 'Cantidad de Negaciones / Fricción',
+    'profanity_present': 'Groserías Presentes',
+    'escalation_requested': 'Solicitud de Agente Humano',
+    'resolution_achieved': 'Resolución Lograda',
+    'typing_vs_button_ratio': 'Ratio Escritura vs Botones',
+    'avg_bot_response_time': 'Tiempo Respuesta Promedio del Bot',
+    'frustration_acceleration': 'Aceleración de Frustración',
+    'first_frustration_turn': 'Turno de Primera Frustración',
+    'avg_cosine_similarity': 'Coherencia Semántica Promedio',
+    'min_cosine_similarity': 'Coherencia Semántica Mínima',
+    'dst_deviation_count': 'Desvíos de Intención (DST)',
+    'char_elongation_count': 'Elongación de Caracteres (Repetición letras)'
+}
+
 class SHAPExplainer:
     """
     Motor de explicabilidad usando SHAP (SHapley Additive exPlanations).
@@ -58,7 +86,7 @@ class SHAPExplainer:
 
     def get_top_n_reasons(self, shap_values: np.ndarray, row_idx: int, n: int = 3) -> Dict[str, float]:
         """
-        Extrae las Top N razones (features) que más empujaron la predicción hacia la frustración.
+        Extrae las Top N razones (features) que más empujaron la predicción hacia la frustración en español.
         """
         instance_shap = shap_values[row_idx]
         
@@ -72,7 +100,11 @@ class SHAPExplainer:
         sorted_indices = positive_indices[np.argsort(instance_shap[positive_indices])[::-1]]
         top_indices = sorted_indices[:n]
         
-        reasons = {self.feature_cols[i]: float(instance_shap[i]) for i in top_indices}
+        # Traducir los nombres de las llaves (características) a español para el visor
+        reasons = {
+            FEATURE_TRANSLATIONS.get(self.feature_cols[i], self.feature_cols[i]): float(instance_shap[i]) 
+            for i in top_indices
+        }
         return reasons
 
     def enrich_with_explanations(self, df: pd.DataFrame, n_reasons: int = 3) -> pd.DataFrame:
@@ -93,15 +125,18 @@ class SHAPExplainer:
 
     def generate_summary_plot(self, df: pd.DataFrame, output_path: str = "data/processed/shap_summary.png"):
         """
-        Genera y guarda el gráfico SHAP Summary (Bee swarm plot) global.
+        Genera y guarda el gráfico SHAP Summary (Bee swarm plot) global con etiquetas traducidas al español.
         """
         logger.info(f"Generando gráfico SHAP summary en {output_path}")
         shap_values, X = self.explain_predictions(df)
         
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
+        # Renombrar columnas a español únicamente para el renderizado del gráfico de SHAP
+        X_translated = X.rename(columns=FEATURE_TRANSLATIONS)
+        
         plt.figure(figsize=(10, 8))
-        shap.summary_plot(shap_values, X, show=False)
+        shap.summary_plot(shap_values, X_translated, show=False)
         plt.tight_layout()
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()

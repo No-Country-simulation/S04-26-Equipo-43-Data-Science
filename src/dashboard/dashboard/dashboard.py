@@ -12,6 +12,7 @@ from src.core.ingest_adapter import IngestAdapter
 from src.core.feature_extractor import FeatureExtractor
 from src.core.feature_aggregator import FeatureAggregator
 from src.core.cascade_orchestrator import CascadeOrchestrator
+from src.core.explainability import FEATURE_TRANSLATIONS
 
 # Carga de fallback resiliente por si no hay archivos procesados
 FEATURES_DATA_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "processed", "features_S1.parquet"))
@@ -81,6 +82,27 @@ class DashboardState(rx.State):
     
     # Navegación
     current_view: str = "Dashboard"
+    show_mobile_menu: bool = False
+    
+    # Configuración de Modelos Híbridos (Mapeo a inputs)
+    embeddings_type: str = "Local (Hugging Face)"
+    embeddings_local_path: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    embeddings_api_model: str = "text-embedding-004"
+    embeddings_api_key: str = ""
+    
+    fast_layer_type: str = "Local (LightGBM)"
+    fast_layer_local_path: str = "models/lgbm_model.pkl"
+    
+    deep_layer_type: str = "API (Google GenAI)"
+    deep_layer_api_model: str = "gemini-2.5-flash"
+    deep_layer_api_key: str = ""
+    deep_layer_local_path: str = "models/llama-3-8b-instruct.Q4_K_M.gguf"
+    
+    # Explorador de Archivos In-App
+    show_file_picker: bool = False
+    file_picker_target: str = ""
+    file_picker_current_dir: str = ""
+    file_picker_items: List[Dict[str, str]] = []
     
     # Filtros
     idioma: str = "ES/EN"
@@ -97,6 +119,146 @@ class DashboardState(rx.State):
     # Carga e Ingesta de Datos
     show_upload_dialog: bool = False
     is_uploading: bool = False
+
+    def set_embeddings_type(self, val: str):
+        self.embeddings_type = val
+
+    def set_embeddings_local_path(self, val: str):
+        self.embeddings_local_path = val
+
+    def set_embeddings_api_model(self, val: str):
+        self.embeddings_api_model = val
+
+    def set_embeddings_api_key(self, val: str):
+        self.embeddings_api_key = val
+
+    def set_fast_layer_type(self, val: str):
+        self.fast_layer_type = val
+
+    def set_fast_layer_local_path(self, val: str):
+        self.fast_layer_local_path = val
+
+    def set_deep_layer_type(self, val: str):
+        self.deep_layer_type = val
+
+    def set_deep_layer_local_path(self, val: str):
+        self.deep_layer_local_path = val
+
+    def set_deep_layer_api_model(self, val: str):
+        self.deep_layer_api_model = val
+
+    def set_deep_layer_api_key(self, val: str):
+        self.deep_layer_api_key = val
+
+    def select_model_gemini_3_5_flash(self):
+        self.deep_layer_api_model = "gemini-3.5-flash"
+
+    def select_model_gemini_2_5_flash(self):
+        self.deep_layer_api_model = "gemini-2.5-flash"
+
+    def select_model_gemini_2_5_flash_lite(self):
+        self.deep_layer_api_model = "gemini-2.5-flash-lite"
+
+    def select_model_deepseek(self):
+        self.deep_layer_api_model = "deepseek/deepseek-chat"
+
+    def select_model_llama_openrouter(self):
+        self.deep_layer_api_model = "meta-llama/llama-3.3-70b-instruct"
+
+    def select_emb_minilm(self):
+        self.embeddings_local_path = "paraphrase-multilingual-MiniLM-L12-v2"
+
+    def select_emb_text_embedding_004(self):
+        self.embeddings_api_model = "text-embedding-004"
+
+    # Eventos de Explorador de Archivos In-App
+    def open_file_picker(self, target: str):
+        """Abre la ventana emergente para buscar archivos de modelo por directorio."""
+        self.file_picker_target = target
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        self.file_picker_current_dir = project_root.replace("\\", "/")
+        self._scan_current_dir()
+        self.show_file_picker = True
+
+    def close_file_picker(self):
+        """Cierra el explorador de archivos."""
+        self.show_file_picker = False
+
+    def _scan_current_dir(self):
+        """Escanea el directorio actual y filtra archivos y carpetas relevantes para ML."""
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        if not self.file_picker_current_dir:
+            self.file_picker_current_dir = project_root.replace("\\", "/")
+            
+        # Contener navegación dentro de la estructura de carpetas del proyecto
+        curr_norm = os.path.normpath(self.file_picker_current_dir)
+        root_norm = os.path.normpath(project_root)
+        try:
+            if not curr_norm.startswith(root_norm):
+                self.file_picker_current_dir = project_root.replace("\\", "/")
+        except Exception:
+            self.file_picker_current_dir = project_root.replace("\\", "/")
+            
+        items = []
+        try:
+            for entry in os.scandir(self.file_picker_current_dir):
+                # Omitir archivos y directorios ocultos o irrelevantes
+                if entry.name.startswith('.') or entry.name in ["venv", "node_modules", "__pycache__", ".web", "dist", "build"]:
+                    continue
+                    
+                is_dir = entry.is_dir()
+                # Filtrar solo archivos con extensiones útiles (.pkl, .gguf, .bin, .json, .csv)
+                if not is_dir and not entry.name.lower().endswith(('.pkl', '.gguf', '.bin', '.json', '.csv')):
+                    continue
+                    
+                items.append({
+                    "name": entry.name,
+                    "is_dir": "true" if is_dir else "false",
+                    "path": entry.path.replace("\\", "/")
+                })
+        except Exception as e:
+            items.append({
+                "name": f"Error leyendo directorio: {str(e)}",
+                "is_dir": "false",
+                "path": ""
+            })
+            
+        # Ordenar: Directorios primero, luego archivos
+        self.file_picker_items = sorted(items, key=lambda x: (x["is_dir"] != "true", x["name"].lower()))
+
+    def navigate_to_dir(self, new_dir: str):
+        """Ingresa a una subcarpeta del directorio actual."""
+        self.file_picker_current_dir = new_dir.replace("\\", "/")
+        self._scan_current_dir()
+
+    def navigate_up(self):
+        """Sube al directorio padre."""
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        curr_normalized = os.path.normpath(self.file_picker_current_dir)
+        root_normalized = os.path.normpath(project_root)
+        if curr_normalized == root_normalized:
+            return
+            
+        parent = os.path.dirname(curr_normalized)
+        self.file_picker_current_dir = parent.replace("\\", "/")
+        self._scan_current_dir()
+
+    def select_file_and_close(self, file_path: str):
+        """Selecciona el archivo especificado, lo mapea de forma relativa al proyecto y cierra el selector."""
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        # Generar ruta relativa y estandarizar barras
+        rel_path = os.path.relpath(file_path, project_root).replace("\\", "/")
+        
+        if self.file_picker_target == "fast_layer":
+            self.fast_layer_local_path = rel_path
+        elif self.file_picker_target == "deep_layer":
+            self.deep_layer_local_path = rel_path
+            
+        self.show_file_picker = False
+
+    def toggle_mobile_menu(self):
+        """Alterna la visibilidad del Drawer móvil."""
+        self.show_mobile_menu = not self.show_mobile_menu
 
     def load_parquet_files(self):
         """Escanea data/processed/ para listar parquets disponibles de inferencia."""
@@ -147,9 +309,27 @@ class DashboardState(rx.State):
             os.makedirs(raw_dir, exist_ok=True)
             
             adapter = IngestAdapter()
-            extractor = FeatureExtractor()
+            
+            # Instanciación dinámica basada en la pantalla de configuración MLOps
+            emb_model = self.embeddings_local_path if self.embeddings_type == "Local (Hugging Face)" else "paraphrase-multilingual-MiniLM-L12-v2"
+            extractor = FeatureExtractor(model_name=emb_model)
             aggregator = FeatureAggregator()
-            orchestrator = CascadeOrchestrator(tau_low=0.45, tau_high=0.75, llm_provider="gemini")
+            
+            provider = "gemini"
+            if "OpenRouter" in self.deep_layer_type:
+                provider = "openrouter"
+            elif "Local" in self.deep_layer_type:
+                provider = "local_llama"
+                
+            orchestrator = CascadeOrchestrator(tau_low=0.45, tau_high=0.75, llm_provider=provider)
+            
+            # Configurar ruta local de la Capa Rápida
+            fast_path = self.fast_layer_local_path if self.fast_layer_type == "Local (LightGBM)" else "models/lgbm_model.pkl"
+            orchestrator.classifier.model_path = fast_path
+            
+            # Parámetros del LLM
+            llm_model = self.deep_layer_api_model if "API" in self.deep_layer_type else self.deep_layer_local_path
+            api_key = self.deep_layer_api_key if self.deep_layer_api_key else None
             
             for file in files:
                 # 1. Guardar archivo temporal en data/raw
@@ -179,7 +359,7 @@ class DashboardState(rx.State):
                     hist = "\n".join([f"{row['rol'].upper()}: {row['mensaje']}" for _, row in group.sort_values('turno').iterrows()])
                     histories[cid] = hist
                     
-                results = orchestrator.run_inference(df_features, histories)
+                results = orchestrator.run_inference(df_features, histories, model=llm_model, api_key=api_key)
                 
                 # 5. Escribir resultados
                 base_name = os.path.splitext(file.filename)[0]
@@ -198,6 +378,85 @@ class DashboardState(rx.State):
             self.is_uploading = False
             self.show_upload_dialog = False
             yield rx.clear_selected_files("upload_conversations")
+
+    @rx.event
+    def reprocess_current_file(self):
+        """Vuelve a ejecutar el pipeline ETL completo sobre el archivo crudo del parquet seleccionado."""
+        if not self.selected_parquet:
+            return
+            
+        self.is_uploading = True
+        yield
+        
+        try:
+            base_name = os.path.splitext(self.selected_parquet)[0]
+            raw_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "raw"))
+            
+            # Localizar el archivo original crudo (.csv o .json)
+            raw_path = None
+            for ext in ['.json', '.csv']:
+                test_path = os.path.join(raw_dir, base_name + ext)
+                if os.path.exists(test_path):
+                    raw_path = test_path
+                    break
+                    
+            if not raw_path:
+                print(f"No se encontró el archivo de entrada crudo para: {self.selected_parquet}")
+                self.is_uploading = False
+                return
+                
+            # Volver a ejecutar el pipeline completo con la configuración MLOps interactiva
+            adapter = IngestAdapter()
+            
+            emb_model = self.embeddings_local_path if self.embeddings_type == "Local (Hugging Face)" else "paraphrase-multilingual-MiniLM-L12-v2"
+            extractor = FeatureExtractor(model_name=emb_model)
+            aggregator = FeatureAggregator()
+            
+            provider = "gemini"
+            if "OpenRouter" in self.deep_layer_type:
+                provider = "openrouter"
+            elif "Local" in self.deep_layer_type:
+                provider = "local_llama"
+                
+            orchestrator = CascadeOrchestrator(tau_low=0.45, tau_high=0.75, llm_provider=provider)
+            
+            fast_path = self.fast_layer_local_path if self.fast_layer_type == "Local (LightGBM)" else "models/lgbm_model.pkl"
+            orchestrator.classifier.model_path = fast_path
+            
+            llm_model = self.deep_layer_api_model if "API" in self.deep_layer_type else self.deep_layer_local_path
+            api_key = self.deep_layer_api_key if self.deep_layer_api_key else None
+            
+            if raw_path.endswith('.json'):
+                df_raw = adapter.load_json(raw_path)
+            else:
+                df_raw = adapter.load_csv(raw_path)
+                
+            if not df_raw.empty:
+                df_msg = extractor.extract_message_features(df_raw)
+                df_msg = extractor.extract_bot_signals(df_msg)
+                df_msg = extractor.compute_semantic_coherence(df_msg)
+                df_features = aggregator.aggregate_conversation_features(df_msg)
+                
+                histories = {}
+                for cid, group in df_raw.groupby("id_conv"):
+                    hist = "\n".join([f"{row['rol'].upper()}: {row['mensaje']}" for _, row in group.sort_values('turno').iterrows()])
+                    histories[cid] = hist
+                    
+                results = orchestrator.run_inference(df_features, histories, model=llm_model, api_key=api_key)
+                
+                # Sobrescribir parquet de inferencia
+                processed_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "processed"))
+                out_path = os.path.join(processed_dir, self.selected_parquet)
+                results.to_parquet(out_path, index=False)
+                
+                # Recargar datos reactivos
+                self.load_parquet_files()
+                
+        except Exception as e:
+            print(f"Error al reprocesar el archivo: {e}")
+        finally:
+            self.is_uploading = False
+            yield
 
     @property
     def df_data(self) -> pd.DataFrame:
@@ -357,12 +616,15 @@ class DashboardState(rx.State):
         if df.empty:
             return {
                 "avg_frustration": "0%", "gray_zone_vol": "0%", "response_time": "0s", 
-                "f1_score": "0.00", "kappa": "0.00", "total_records": "0", "total_critical": "0"
+                "f1_score": "0.00", "kappa": "0.00", "total_records": "0 / 0", "total_critical": "0"
             }
             
         avg_frust = df_filtered['frustration_score'].mean() if not df_filtered.empty else 0.0
-        gray_zone = len(df[(df['frustration_score'] >= 45) & (df['frustration_score'] <= 75)])
-        gray_vol = (gray_zone / len(df)) * 100 if len(df) > 0 else 0
+        
+        # Calcular el volumen de desvíos reales (casos que usaron la Capa Profunda/Gemini)
+        # Esto refleja fielmente la Zona Gris + los Rescates Heurísticos del flujo en cascada
+        deep_cases = len(df[df['layer_used'].isin(['Deep Layer', 'Capa Profunda'])])
+        gray_vol = (deep_cases / len(df)) * 100 if len(df) > 0 else 0.0
         
         f1_real = 0.88
         kappa_real = 0.75
@@ -373,7 +635,7 @@ class DashboardState(rx.State):
             "response_time": "1.2s",
             "f1_score": f"{f1_real:.2f}",
             "kappa": f"{kappa_real:.2f}",
-            "total_records": f"{len(df):,}",
+            "total_records": f"{len(df_filtered)} / {len(df)}",
             "total_critical": f"{len(df_filtered):,}"
         }
 
@@ -388,9 +650,11 @@ class DashboardState(rx.State):
     @rx.var
     def progress_percent_str(self) -> str:
         df = self.df_data
+        df_filtered = self.df_filtered
         if df.empty:
             return "0%"
-        p = min(100, int((len(df) / 2000.0) * 100))
+        # Reflejar el porcentaje de casos críticos filtrados respecto al total
+        p = int((len(df_filtered) / len(df)) * 100) if len(df) > 0 else 0
         return f"{p}%"
 
     @rx.var
@@ -647,7 +911,7 @@ class DashboardState(rx.State):
         if not importances:
             importances = [("Sin características", 0.0)]
             
-        y_data = [x[0] for x in importances]
+        y_data = [FEATURE_TRANSLATIONS.get(x[0], x[0]) for x in importances]
         x_data = [round(x[1], 2) for x in importances]
         
         y_data.reverse()
@@ -703,6 +967,7 @@ class DashboardState(rx.State):
 
     def set_view(self, view: str):
         self.current_view = view
+        self.show_mobile_menu = False
         
     def select_conversation(self, value: str):
         self.selected_id = value
@@ -731,10 +996,26 @@ def render_chat_message(turn: Dict[str, str]) -> rx.Component:
     )
 
 def render_sparkline(title: str, line_color: str, area_color_stops: list, data: rx.Var) -> rx.Component:
-    """Genera un sparkline minimalista usando ECharts y colores de diseño."""
+    """Genera una gráfica de tendencias de sentimiento usando ECharts con ejes de escala para interpretación visual."""
     option = {
-        "xAxis": {"type": "category", "show": False, "boundaryGap": False},
-        "yAxis": {"type": "value", "show": False, "min": "dataMin", "max": "dataMax"},
+        "xAxis": {
+            "type": "category", 
+            "show": True, 
+            "boundaryGap": False,
+            "data": ["T1 (Inicio)", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9 (Fin)"],
+            "axisLabel": {"color": "#8899aa", "fontSize": 8},
+            "axisLine": {"lineStyle": {"color": "#2a3f55"}},
+            "splitLine": {"show": False}
+        },
+        "yAxis": {
+            "type": "value", 
+            "show": True, 
+            "min": 0, 
+            "max": 100,
+            "axisLabel": {"color": "#8899aa", "fontSize": 9, "formatter": "{value}%"},
+            "splitLine": {"lineStyle": {"color": "#2a3f55", "type": "dashed"}},
+            "axisLine": {"show": False}
+        },
         "series": [{
             "data": data, "type": "line", "smooth": True, "symbol": "none",
             "lineStyle": {"color": line_color, "width": 2},
@@ -745,12 +1026,17 @@ def render_sparkline(title: str, line_color: str, area_color_stops: list, data: 
                 }
             }
         }],
-        "grid": {"left": 0, "right": 0, "top": 5, "bottom": 5},
-        "tooltip": {"show": False}
+        "grid": {"left": "35px", "right": "15px", "top": "15px", "bottom": "30px"},
+        "tooltip": {
+            "trigger": "axis",
+            "backgroundColor": "#1a2d42",
+            "borderColor": "#2a3f55",
+            "textStyle": {"color": "#e0e6ed", "fontSize": 11}
+        }
     }
     return rx.vstack(
         rx.text(title, font_weight="600", color="#e0e6ed", size="2"),
-        rx.box(echarts(option=option), width="100%", height="80px"),
+        echarts(option=option, height="130px", width="100%"),
         align_items="flex-start",
         width="100%"
     )
@@ -830,15 +1116,15 @@ def view_dashboard() -> rx.Component:
         rx.grid(
             render_kpi_card("F1-Score (Híbrido)", DashboardState.metrics["f1_score"], "≥ 0.80", DashboardState.f1_percent_str, True),
             render_kpi_card("Cohen's Kappa", DashboardState.metrics["kappa"], "0.50 - 0.60", DashboardState.kappa_percent_str, True),
-            render_kpi_card("Conversaciones Evaluadas", DashboardState.metrics["total_records"], "2,000", DashboardState.progress_percent_str, True),
-            columns="3", spacing="4", width="100%", margin_bottom="4"
+            render_kpi_card("Casos Críticos / Evaluados", DashboardState.metrics["total_records"], "Ratio", DashboardState.progress_percent_str, True),
+            columns={"initial": "1", "sm": "2", "md": "3"}, spacing="4", width="100%", margin_bottom="4"
         ),
 
         rx.grid(
             render_bullet_chart_mock("Promedio de Frustración", DashboardState.metrics["avg_frustration"], "50%", "linear-gradient(90deg, #ff6d00 0%, #ff1744 100%)"),
             render_bullet_chart_mock("Volumen Zona Gris", DashboardState.metrics["gray_zone_vol"], "30%", "linear-gradient(90deg, #00e5ff 0%, #ffb300 100%)"),
             render_bullet_chart_mock("Velocidad de Inferencia", DashboardState.metrics["response_time"], "1.5s", "linear-gradient(90deg, #76ff03 0%, #00e5ff 100%)"),
-            columns="3", spacing="4", width="100%"
+            columns={"initial": "1", "sm": "2", "md": "3"}, spacing="4", width="100%"
         ),
         
         rx.box(
@@ -853,6 +1139,13 @@ def view_dashboard() -> rx.Component:
                     border_radius="md",
                     bg="rgba(118, 255, 3, 0.1)"
                 )
+            ),
+            rx.text(
+                "ℹ️ Guía de Lectura: El Eje X (Tiempo) divide el lote de conversaciones cargado de manera cronológica desde el inicio del periodo (T1) hasta el final (T9). El Eje Y (Porcentaje) mide la intensidad del sentimiento promedio (0% a 100%).",
+                font_size="xs",
+                color="#8899aa",
+                margin_top="1",
+                margin_bottom="3"
             ),
             rx.grid(
                 render_sparkline(
@@ -873,15 +1166,15 @@ def view_dashboard() -> rx.Component:
                     [{"offset": 0, "color": "rgba(255, 109, 0, 0.4)"}, {"offset": 1, "color": "rgba(255, 109, 0, 0)"}],
                     DashboardState.sparkline_data_frust
                 ),
-                columns="3", spacing="6", width="100%", margin_top="4"
+                columns={"initial": "1", "sm": "1", "md": "3"}, spacing="6", width="100%", margin_top="4"
             ),
             padding="6", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", width="100%", margin_top="6"
         ),
         
         rx.box(
             rx.text("Atribución Global de Desviaciones (Importancia de Características - SHAP)", font_size="lg", font_weight="bold", color="#e0e6ed", margin_bottom="4"),
-            echarts(option=DashboardState.shap_chart_option, height="300px"),
-            padding="6", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", width="100%", margin_top="6"
+            echarts(option=DashboardState.shap_chart_option, height="300px", width="100%"),
+            padding="6", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", width="100%", max_width="100%", margin_top="6"
         ),
         
         width="100%", align_items="flex-start"
@@ -903,7 +1196,7 @@ def view_diagnostico() -> rx.Component:
                     border="1px solid #2a3f55",
                     color="#00e5ff"
                 ),
-                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42"
+                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", width="100%", max_width="100%"
             ),
             rx.vstack(
                 rx.hstack(
@@ -923,9 +1216,9 @@ def view_diagnostico() -> rx.Component:
                     bg="#152232",
                     border_radius="full"
                 ),
-                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", justify_content="center"
+                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", justify_content="center", width="100%", max_width="100%"
             ),
-            columns="2", spacing="4", width="100%"
+            columns={"initial": "1", "sm": "2"}, spacing="4", width="100%"
         ),
         rx.grid(
             rx.box(
@@ -934,14 +1227,17 @@ def view_diagnostico() -> rx.Component:
                     rx.text("Razonamiento de Texto Profundo (Chain-of-Thought)", font_weight="bold", color="#e0e6ed"),
                     spacing="2", margin_bottom="2"
                 ),
-                rx.box(
+                rx.scroll_area(
                     rx.text(DashboardState.selected_reasoning, color="#e0e6ed", font_family="monospace", font_size="13px", line_height="1.5"),
+                    height="250px",
+                    width="100%",
+                    scrollbars="vertical",
                     bg="#152232",
                     padding="4",
                     border_radius="md",
                     border="1px solid #2a3f55"
                 ),
-                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42"
+                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", width="100%", max_width="100%"
             ),
             rx.box(
                 rx.hstack(
@@ -954,11 +1250,11 @@ def view_diagnostico() -> rx.Component:
                         rx.foreach(DashboardState.selected_chat_turns, render_chat_message),
                         width="100%", spacing="2"
                     ),
-                    height="250px", width="100%"
+                    height="250px", width="100%", scrollbars="vertical"
                 ),
-                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42"
+                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", width="100%", max_width="100%"
             ),
-            columns="2", spacing="4", width="100%", margin_top="4"
+            columns={"initial": "1", "lg": "2"}, spacing="4", width="100%", margin_top="4"
         ),
         
         # Timeline de Interacción alternado con nodo final de falla
@@ -1039,64 +1335,68 @@ def view_intenciones() -> rx.Component:
         rx.grid(
             rx.box(
                 rx.text("Cruce de Datos: Intención vs. Frustración (Heatmap)", font_weight="bold", color="#e0e6ed", margin_bottom="2"),
-                echarts(option=DashboardState.heatmap_option, height="300px"),
-                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42"
+                echarts(option=DashboardState.heatmap_option, height="300px", width="100%"),
+                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", width="100%", max_width="100%"
             ),
             rx.box(
                 rx.text("Listado Dinámico de Flujos Fallidos Críticos", font_weight="bold", color="#e0e6ed", margin_bottom="2"),
-                rx.table.root(
-                    rx.table.header(
-                        rx.table.row(
-                            rx.table.column_header_cell("Intención Detectada", color="#8899aa"),
-                            rx.table.column_header_cell("Conversaciones", color="#8899aa"),
-                            rx.table.column_header_cell("Frustración Promedio", color="#8899aa"),
-                            rx.table.column_header_cell("Acción Recomendada", color="#8899aa"),
+                rx.box(
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                rx.table.column_header_cell("Intención Detectada", color="#8899aa"),
+                                rx.table.column_header_cell("Conversaciones", color="#8899aa"),
+                                rx.table.column_header_cell("Frustración Promedio", color="#8899aa"),
+                                rx.table.column_header_cell("Acción Recomendada", color="#8899aa"),
+                            ),
                         ),
-                    ),
-                    rx.table.body(
-                        rx.foreach(
-                            DashboardState.intention_metrics,
-                            lambda metric: rx.table.row(
-                                rx.table.cell(metric["intent"], color="#e0e6ed", font_weight="500"),
-                                rx.table.cell(metric["volume"], color="#8899aa"),
-                                rx.table.cell(
-                                    rx.hstack(
-                                        rx.text(metric["frustration"], color="#e0e6ed", size="2", width="45px"),
-                                        rx.box(
+                        rx.table.body(
+                            rx.foreach(
+                                DashboardState.intention_metrics,
+                                lambda metric: rx.table.row(
+                                    rx.table.cell(metric["intent"], color="#e0e6ed", font_weight="500"),
+                                    rx.table.cell(metric["volume"], color="#8899aa"),
+                                    rx.table.cell(
+                                        rx.hstack(
+                                            rx.text(metric["frustration"], color="#e0e6ed", size="2", width="45px"),
                                             rx.box(
-                                                width=metric["frustration"],
-                                                height="100%",
-                                                bg="linear-gradient(90deg, #00e5ff 0%, #ff6d00 100%)",
+                                                rx.box(
+                                                    width=metric["frustration"],
+                                                    height="100%",
+                                                    bg="linear-gradient(90deg, #00e5ff 0%, #ff6d00 100%)",
+                                                    border_radius="full"
+                                                ),
+                                                width="80px",
+                                                height="6px",
+                                                bg="#152232",
                                                 border_radius="full"
                                             ),
-                                            width="80px",
-                                            height="6px",
-                                            bg="#152232",
-                                            border_radius="full"
-                                        ),
-                                        align_items="center",
-                                        spacing="2"
-                                    )
-                                ),
-                                rx.table.cell(
-                                    rx.cond(
-                                        metric["action"] == "Re-entrenar",
-                                        rx.badge(metric["action"], color_scheme="red", variant="solid"),
+                                            align_items="center",
+                                            spacing="2"
+                                        )
+                                    ),
+                                    rx.table.cell(
                                         rx.cond(
-                                            metric["action"] == "Revisar Flujo",
-                                            rx.badge(metric["action"], color_scheme="orange", variant="solid"),
-                                            rx.badge(metric["action"], color_scheme="green", variant="solid")
+                                            metric["action"] == "Re-entrenar",
+                                            rx.badge(metric["action"], color_scheme="red", variant="solid"),
+                                            rx.cond(
+                                                metric["action"] == "Revisar Flujo",
+                                                rx.badge(metric["action"], color_scheme="orange", variant="solid"),
+                                                rx.badge(metric["action"], color_scheme="green", variant="solid")
+                                            )
                                         )
                                     )
                                 )
                             )
-                        )
+                        ),
+                        width="100%"
                     ),
+                    overflow_x="auto",
                     width="100%"
                 ),
-                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42"
+                padding="4", border="1px solid #2a3f55", border_radius="12px", bg="#1a2d42", width="100%", max_width="100%"
             ),
-            columns="2", spacing="4", width="100%"
+            columns={"initial": "1", "lg": "2"}, spacing="4", width="100%"
         ),
         
         # Resumen de Prioridades Dinámico con Glowing Cyan Border
@@ -1123,6 +1423,451 @@ def view_intenciones() -> rx.Component:
         width="100%", align_items="flex-start"
     )
 
+def render_config_card(title: str, icon: str, description: str, children: list) -> rx.Component:
+    """Tarjeta premium para el panel de configuración de modelos."""
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                rx.icon(icon, size=20, color="#00e5ff"),
+                rx.text(title, font_size="lg", font_weight="bold", color="#e0e6ed"),
+                spacing="2"
+            ),
+            rx.text(description, font_size="xs", color="#8899aa", margin_top="1", margin_bottom="3"),
+            rx.vstack(*children, spacing="3", width="100%"),
+            align_items="flex-start",
+            width="100%"
+        ),
+        padding="6",
+        border="1px solid #2a3f55",
+        border_radius="12px",
+        bg="#1a2d42",
+        width="100%"
+    )
+
+def file_picker_dialog() -> rx.Component:
+    """Rinde el modal del Explorador de Archivos local (in-app directory browser)."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("Explorador de Archivos Local", color="#e0e6ed"),
+            rx.dialog.description(
+                "Navega por las carpetas del proyecto y selecciona el archivo correspondiente (.pkl, .gguf, .bin, .json, .csv).",
+                size="1", color="#8899aa", margin_bottom="3"
+            ),
+            rx.vstack(
+                # Cabecera de directorio actual y botón subir
+                rx.hstack(
+                    rx.text("Ruta:", size="1", color="#8899aa"),
+                    rx.text(DashboardState.file_picker_current_dir, size="2", font_weight="bold", color="#00e5ff", overflow="hidden", text_overflow="ellipsis", max_width="320px"),
+                    rx.spacer(),
+                    rx.button(
+                        rx.hstack(
+                            rx.icon("arrow-up", size=12),
+                            rx.text("Subir", size="1"),
+                            spacing="1"
+                        ),
+                        size="1",
+                        variant="outline",
+                        color_scheme="gray",
+                        on_click=DashboardState.navigate_up
+                    ),
+                    width="100%",
+                    align_items="center",
+                    padding="2",
+                    bg="#152232",
+                    border_radius="6px"
+                ),
+                
+                # Lista de archivos / carpetas
+                rx.scroll_area(
+                    rx.vstack(
+                        rx.foreach(
+                            DashboardState.file_picker_items,
+                            lambda item: rx.cond(
+                                item["is_dir"] == "true",
+                                rx.button(
+                                    rx.hstack(
+                                        rx.icon("folder", size=14, color="#ffb300"),
+                                        rx.text(item["name"], overflow="hidden", text_overflow="ellipsis", font_size="12px"),
+                                        spacing="2"
+                                    ),
+                                    width="100%",
+                                    variant="ghost",
+                                    justify_content="flex-start",
+                                    color="#ffb300",
+                                    on_click=lambda: DashboardState.navigate_to_dir(item["path"]),
+                                    padding="2"
+                                ),
+                                rx.button(
+                                    rx.hstack(
+                                        rx.icon("file-code", size=14, color="#00e5ff"),
+                                        rx.text(item["name"], overflow="hidden", text_overflow="ellipsis", font_size="12px"),
+                                        spacing="2"
+                                    ),
+                                    width="100%",
+                                    variant="ghost",
+                                    justify_content="flex-start",
+                                    color="#76ff03",
+                                    on_click=lambda: DashboardState.select_file_and_close(item["path"]),
+                                    padding="2"
+                                )
+                            )
+                        ),
+                        spacing="1",
+                        width="100%"
+                    ),
+                    style={"height": "250px", "margin_top": "10px", "border": "1px solid #2a3f55", "padding": "8px", "border-radius": "6px", "bg": "#111a26"},
+                    scrollbars="vertical",
+                    width="100%"
+                ),
+                
+                # Footer botones
+                rx.hstack(
+                    rx.spacer(),
+                    rx.button("Cancelar", variant="soft", color_scheme="gray", on_click=DashboardState.close_file_picker),
+                    width="100%",
+                    margin_top="3"
+                ),
+                width="100%"
+            ),
+            bg="#1a2d42",
+            border="1px solid #2a3f55",
+            max_width="480px",
+            border_radius="12px"
+        ),
+        open=DashboardState.show_file_picker,
+        on_open_change=DashboardState.close_file_picker
+    )
+
+def view_configuracion() -> rx.Component:
+    """Vista de Configuración MLOps del Router Híbrido."""
+    return rx.vstack(
+        rx.heading("Configuración de Arquitectura de Modelos (MLOps)", size="5", margin_bottom="2", color="#e0e6ed"),
+        rx.text(
+            "Configure dinámicamente los proveedores, llaves API y rutas de los modelos en local y nube para las tres capas del pipeline de inferencia cascada de ConversaSense AI.",
+            font_size="sm", color="#8899aa", margin_bottom="6"
+        ),
+        
+        rx.grid(
+            # Tarjeta de Embeddings
+            render_config_card(
+                "1. Capa de Codificación (NLP Embeddings)",
+                "binary",
+                "Modelo de embeddings local o de API encargado de vectorizar de forma semántica los textos para detectar desvíos conversacionales (DST Deviation) y caídas de coherencia.",
+                [
+                    rx.text("Tipo de Ejecución", size="1", font_weight="bold", color="#8899aa"),
+                    rx.select(
+                        ["Local (Hugging Face)", "API (Google GenAI)"],
+                        value=DashboardState.embeddings_type,
+                        on_change=DashboardState.set_embeddings_type,
+                        width="100%",
+                        bg="#152232",
+                        border="1px solid #2a3f55",
+                        color="#00e5ff"
+                    ),
+                    rx.cond(
+                        DashboardState.embeddings_type == "Local (Hugging Face)",
+                        rx.vstack(
+                            rx.text("Nombre/Ruta del Modelo en Local (Hugging Face ID)", size="1", font_weight="bold", color="#8899aa"),
+                            rx.input(
+                                value=DashboardState.embeddings_local_path,
+                                on_change=DashboardState.set_embeddings_local_path,
+                                width="100%",
+                                bg="#152232",
+                                border="1px solid #2a3f55",
+                                color="#e0e6ed"
+                            ),
+                            rx.hstack(
+                                rx.text("Modelo sugerido:", size="1", color="#8899aa"),
+                                rx.button(
+                                    "MiniLM-L12 (Multilingual)",
+                                    size="1",
+                                    on_click=DashboardState.select_emb_minilm,
+                                    bg="#152232",
+                                    border="1px solid #00e5ff",
+                                    color="#00e5ff",
+                                    font_size="9px",
+                                    padding="2px 6px"
+                                )
+                            ),
+                            rx.text("Latencia: ~12ms | Costo: $0.00 (Inferencia local optimizada en CPU)", size="1", color="#76ff03"),
+                            width="100%"
+                        ),
+                        rx.vstack(
+                            rx.text("Modelo de Embedding de la API", size="1", font_weight="bold", color="#8899aa"),
+                            rx.input(
+                                value=DashboardState.embeddings_api_model,
+                                on_change=DashboardState.set_embeddings_api_model,
+                                width="100%",
+                                bg="#152232",
+                                border="1px solid #2a3f55",
+                                color="#e0e6ed"
+                            ),
+                            rx.hstack(
+                                rx.text("Modelo sugerido:", size="1", color="#8899aa"),
+                                rx.button(
+                                    "text-embedding-004 (Google)",
+                                    size="1",
+                                    on_click=DashboardState.select_emb_text_embedding_004,
+                                    bg="#152232",
+                                    border="1px solid #00e5ff",
+                                    color="#00e5ff",
+                                    font_size="9px",
+                                    padding="2px 6px"
+                                )
+                            ),
+                            rx.text("API Key", size="1", font_weight="bold", color="#8899aa"),
+                            rx.input(
+                                type="password",
+                                placeholder="Usar valor de .env o pegar nueva key",
+                                value=DashboardState.embeddings_api_key,
+                                on_change=DashboardState.set_embeddings_api_key,
+                                width="100%",
+                                bg="#152232",
+                                border="1px solid #2a3f55",
+                                color="#e0e6ed"
+                            ),
+                            rx.text("Latencia: ~120ms | Costo: $0.00002 / 1k Tokens (Llamada a la nube)", size="1", color="#ffb300"),
+                            width="100%"
+                        )
+                    )
+                ]
+            ),
+            
+            # Tarjeta de Capa Rápida
+            render_config_card(
+                "2. Capa Rápida (Modelo Ligero Local)",
+                "zap",
+                "Clasificador supervisado de árboles supervisados de decisión entrenado en local para evaluar de forma instantánea y en CPU el score de frustración preliminar del usuario.",
+                [
+                    rx.text("Tipo de Ejecución", size="1", font_weight="bold", color="#8899aa"),
+                    rx.select(
+                        ["Local (LightGBM)", "Heurísticas Hardcoded"],
+                        value=DashboardState.fast_layer_type,
+                        on_change=DashboardState.set_fast_layer_type,
+                        width="100%",
+                        bg="#152232",
+                        border="1px solid #2a3f55",
+                        color="#00e5ff"
+                    ),
+                    rx.cond(
+                        DashboardState.fast_layer_type == "Local (LightGBM)",
+                        rx.vstack(
+                            rx.text("Ruta del Archivo del Modelo Local (.pkl)", size="1", font_weight="bold", color="#8899aa"),
+                            rx.hstack(
+                                rx.input(
+                                    value=DashboardState.fast_layer_local_path,
+                                    on_change=DashboardState.set_fast_layer_local_path,
+                                    flex="1",
+                                    bg="#152232",
+                                    border="1px solid #2a3f55",
+                                    color="#e0e6ed"
+                                ),
+                                rx.button(
+                                    rx.icon("folder-open", size=14),
+                                    on_click=lambda: DashboardState.open_file_picker("fast_layer"),
+                                    bg="#152232",
+                                    border="1px solid #00e5ff",
+                                    color="#00e5ff",
+                                    padding="0 10px"
+                                ),
+                                width="100%"
+                            ),
+                            rx.text("Latencia: < 1ms | Costo: $0.00 (Inferencia local instantánea en CPU)", size="1", color="#76ff03"),
+                            width="100%"
+                        ),
+                        rx.vstack(
+                            rx.text("Clasificación heurística lineal y conteo de señales (no-ML)", size="1", color="#8899aa"),
+                            rx.text("Latencia: < 0.1ms | Costo: $0.00", size="1", color="#76ff03"),
+                            width="100%"
+                        )
+                    )
+                ]
+            ),
+            
+            # Tarjeta de Capa Profunda
+            render_config_card(
+                "3. Capa Profunda (Modelo Grande de Auditoría)",
+                "brain",
+                "Modelo de lenguaje de alta capacidad encargado de auditar de manera cognitiva los casos de la Zona Gris o Crítica, razonando mediante CoT y emitiendo recomendaciones.",
+                [
+                    rx.text("Destino y Ejecución del Modelo Grande", size="1", font_weight="bold", color="#8899aa"),
+                    rx.select(
+                        ["API (Google GenAI)", "API (OpenRouter)", "Local (Llama-3 CPU)"],
+                        value=DashboardState.deep_layer_type,
+                        on_change=DashboardState.set_deep_layer_type,
+                        width="100%",
+                        bg="#152232",
+                        border="1px solid #2a3f55",
+                        color="#00e5ff"
+                    ),
+                    rx.cond(
+                        DashboardState.deep_layer_type == "Local (Llama-3 CPU)",
+                        rx.vstack(
+                            rx.text("Ruta del Archivo de Pesos Local (GGUF / Directorio)", size="1", font_weight="bold", color="#8899aa"),
+                            rx.hstack(
+                                rx.input(
+                                    value=DashboardState.deep_layer_local_path,
+                                    on_change=DashboardState.set_deep_layer_local_path,
+                                    flex="1",
+                                    bg="#152232",
+                                    border="1px solid #2a3f55",
+                                    color="#e0e6ed"
+                                ),
+                                rx.button(
+                                    rx.icon("folder-open", size=14),
+                                    on_click=lambda: DashboardState.open_file_picker("deep_layer"),
+                                    bg="#152232",
+                                    border="1px solid #00e5ff",
+                                    color="#00e5ff",
+                                    padding="0 10px"
+                                ),
+                                width="100%"
+                            ),
+                            rx.text("Latencia: ~1.5s | Costo: $0.00 (Soberanía de Datos e Inferencia local CPU)", size="1", color="#76ff03"),
+                            width="100%"
+                        ),
+                        rx.vstack(
+                            rx.text("Nombre Técnico Exacto del Modelo del Proveedor", size="1", font_weight="bold", color="#8899aa"),
+                            rx.input(
+                                value=DashboardState.deep_layer_api_model,
+                                on_change=DashboardState.set_deep_layer_api_model,
+                                width="100%",
+                                bg="#152232",
+                                border="1px solid #2a3f55",
+                                color="#e0e6ed"
+                            ),
+                            rx.cond(
+                                DashboardState.deep_layer_type == "API (Google GenAI)",
+                                rx.vstack(
+                                    rx.hstack(
+                                        rx.text("Modelos Gemini recomendados: ", size="1", color="#8899aa"),
+                                        rx.button(
+                                            "gemini-3.5-flash",
+                                            size="1",
+                                            on_click=DashboardState.select_model_gemini_3_5_flash,
+                                            bg="#152232",
+                                            border="1px solid #00e5ff",
+                                            color="#00e5ff",
+                                            font_size="9px",
+                                            padding="2px 6px"
+                                        ),
+                                        rx.button(
+                                            "gemini-2.5-flash",
+                                            size="1",
+                                            on_click=DashboardState.select_model_gemini_2_5_flash,
+                                            bg="#152232",
+                                            border="1px solid #00e5ff",
+                                            color="#00e5ff",
+                                            font_size="9px",
+                                            padding="2px 6px"
+                                        ),
+                                        rx.button(
+                                            "gemini-2.5-flash-lite",
+                                            size="1",
+                                            on_click=DashboardState.select_model_gemini_2_5_flash_lite,
+                                            bg="#152232",
+                                            border="1px solid #00e5ff",
+                                            color="#00e5ff",
+                                            font_size="9px",
+                                            padding="2px 6px"
+                                        )
+                                    ),
+                                    rx.cond(
+                                        ~DashboardState.deep_layer_api_model.contains("gemini"),
+                                        rx.box(
+                                            rx.text("⚠️ Alerta de Consistencia: Has seleccionado Google GenAI pero el modelo no contiene 'gemini'. Los modelos de Google deben comenzar con 'models/gemini-' o 'gemini-'.", size="1", color="#ff1744", font_weight="bold"),
+                                            padding="2",
+                                            border="1px solid #ff1744",
+                                            border_radius="6px",
+                                            bg="rgba(255, 23, 68, 0.05)",
+                                            width="100%"
+                                        )
+                                    ),
+                                    width="100%"
+                                ),
+                                rx.vstack(
+                                    rx.hstack(
+                                        rx.text("Modelos OpenRouter recomendados: ", size="1", color="#8899aa"),
+                                        rx.button(
+                                            "DeepSeek Chat",
+                                            size="1",
+                                            on_click=DashboardState.select_model_deepseek,
+                                            bg="#152232",
+                                            border="1px solid #00e5ff",
+                                            color="#00e5ff",
+                                            font_size="9px",
+                                            padding="2px 6px"
+                                        ),
+                                        rx.button(
+                                            "Llama 3.3 (70B)",
+                                            size="1",
+                                            on_click=DashboardState.select_model_llama_openrouter,
+                                            bg="#152232",
+                                            border="1px solid #00e5ff",
+                                            color="#00e5ff",
+                                            font_size="9px",
+                                            padding="2px 6px"
+                                        )
+                                    ),
+                                    rx.cond(
+                                        DashboardState.deep_layer_api_model.contains("models/"),
+                                        rx.box(
+                                            rx.text("⚠️ Alerta de Consistencia: Estás en OpenRouter pero has configurado un prefijo 'models/'. En OpenRouter, los nombres técnicos deben seguir el formato 'proveedor/modelo' como 'deepseek/deepseek-chat' o 'meta-llama/llama-3.3-70b-instruct'.", size="1", color="#ff1744", font_weight="bold"),
+                                            padding="2",
+                                            border="1px solid #ff1744",
+                                            border_radius="6px",
+                                            bg="rgba(255, 23, 68, 0.05)",
+                                            width="100%"
+                                        )
+                                    ),
+                                    width="100%"
+                                )
+                            ),
+                            rx.text("Clave de API (Key / Token)", size="1", font_weight="bold", color="#8899aa"),
+                            rx.input(
+                                type="password",
+                                placeholder="Usar clave de .env o pegar nueva key",
+                                value=DashboardState.deep_layer_api_key,
+                                on_change=DashboardState.set_deep_layer_api_key,
+                                width="100%",
+                                bg="#152232",
+                                border="1px solid #2a3f55",
+                                color="#e0e6ed"
+                            ),
+                            rx.cond(
+                                DashboardState.deep_layer_type == "API (Google GenAI)",
+                                rx.text("Latencia: ~1.0s | Costo: $0.00015 / 1k Tokens (Google Flash)", size="1", color="#00e5ff"),
+                                rx.text("Latencia: ~2.5s | Costo: Variable según modelo de API externa", size="1", color="#ffb300")
+                            ),
+                            width="100%"
+                        )
+                    )
+                ]
+            ),
+            columns={"initial": "1", "lg": "3"}, spacing="4", width="100%"
+        ),
+        
+        # Botón Guardar / Confirmar con borde glowing
+        rx.box(
+            rx.hstack(
+                rx.icon("save", size=16),
+                rx.text("Aplicar Configuración de Arquitectura", font_weight="bold"),
+                rx.spacer(),
+                rx.text("Los cambios se aplicarán en el próximo reprocesamiento", size="1", color="#76ff03")
+            ),
+            padding="4",
+            border="1px solid #00e5ff",
+            border_radius="12px",
+            bg="#1e3448",
+            width="100%",
+            margin_top="6",
+            box_shadow="0 0 10px rgba(0, 229, 255, 0.15)"
+        ),
+        file_picker_dialog(),
+        width="100%",
+        align_items="flex-start"
+    )
+
 def nav_button(text: str, icon: str, view_name: str) -> rx.Component:
     """Botonera de navegación de la barra lateral con estética premium."""
     is_active = DashboardState.current_view == view_name
@@ -1141,7 +1886,7 @@ def nav_button(text: str, icon: str, view_name: str) -> rx.Component:
     )
 
 def sidebar() -> rx.Component:
-    """Barra lateral del sistema con controles de filtros y carga drag-and-drop."""
+    """Barra lateral del sistema con controles de filtros y carga drag-and-drop. Fija en desktop y oculta en móvil."""
     return rx.vstack(
         # Logo y Marca
         rx.hstack(
@@ -1155,6 +1900,7 @@ def sidebar() -> rx.Component:
         nav_button("Dashboard", "layout_dashboard", "Dashboard"),
         nav_button("Diagnóstico", "activity", "Diagnóstico"),
         nav_button("Intenciones", "list", "Intenciones"),
+        nav_button("Configuración", "settings", "Configuración"),
         
         rx.divider(margin_y="4", color="#2a3f55"),
         
@@ -1253,6 +1999,27 @@ def sidebar() -> rx.Component:
             border="1px solid #2a3f55",
             color="#e0e6ed"
         ),
+        rx.cond(
+            DashboardState.is_uploading,
+            rx.button(
+                rx.spinner(size="1"),
+                rx.text("Procesando Lote...", size="2"),
+                disabled=True,
+                color_scheme="cyan",
+                variant="outline",
+                width="100%",
+                margin_top="2"
+            ),
+            rx.button(
+                rx.icon("refresh_cw", size=14),
+                rx.text("Reprocesar Lote", size="2"),
+                on_click=DashboardState.reprocess_current_file,
+                color_scheme="cyan",
+                variant="outline",
+                width="100%",
+                margin_top="2"
+            )
+        ),
         
         rx.divider(margin_y="4", color="#2a3f55"),
         
@@ -1286,6 +2053,10 @@ def sidebar() -> rx.Component:
                 rx.text("Inferencia:", size="1", color="#8899aa"),
                 rx.text(DashboardState.metrics['response_time'], size="1", color="#00e5ff", font_weight="bold")
             ),
+            rx.hstack(
+                rx.text("Embeddings:", size="1", color="#8899aa"),
+                rx.text(DashboardState.embeddings_local_path, size="1", color="#76ff03", font_weight="bold", overflow="hidden", text_overflow="ellipsis", white_space="nowrap", max_width="140px")
+            ),
             padding="3",
             bg="#1a2d42",
             border="1px solid #2a3f55",
@@ -1300,17 +2071,202 @@ def sidebar() -> rx.Component:
         padding="6", 
         bg="#152232", 
         border_right="1px solid #2a3f55", 
-        align_items="flex-start"
+        align_items="flex-start",
+        position="fixed",
+        top="0",
+        left="0",
+        bottom="0",
+        z_index="100",
+        display=["none", "none", "none", "flex"]
+    )
+
+def mobile_navbar() -> rx.Component:
+    """Barra superior de navegación responsiva para móviles y tablets (< lg)."""
+    return rx.hstack(
+        rx.hstack(
+            rx.icon("brain", size=20, color="#00e5ff"),
+            rx.heading("ConversaSense", size="4", color="white"),
+            spacing="2"
+        ),
+        rx.spacer(),
+        rx.icon_button(
+            "menu",
+            on_click=DashboardState.toggle_mobile_menu,
+            variant="ghost",
+            color_scheme="cyan",
+            size="3"
+        ),
+        width="100%",
+        padding="4",
+        bg="#152232",
+        border_bottom="1px solid #2a3f55",
+        position="fixed",
+        top="0",
+        left="0",
+        right="0",
+        z_index="200",
+        display=["flex", "flex", "flex", "none"],
+        align_items="center"
+    )
+
+def mobile_drawer() -> rx.Component:
+    """Drawer lateral de navegación responsiva para móviles y tablets."""
+    return rx.cond(
+        DashboardState.show_mobile_menu,
+        rx.box(
+            # Fondo semi-transparente
+            rx.box(
+                position="fixed",
+                top="0",
+                left="0",
+                right="0",
+                bottom="0",
+                bg="rgba(0, 0, 0, 0.6)",
+                z_index="250",
+                on_click=DashboardState.toggle_mobile_menu,
+            ),
+            # Panel lateral móvil
+            rx.box(
+                rx.vstack(
+                    # Cabecera del Drawer con botón de cierre
+                    rx.hstack(
+                        rx.hstack(
+                            rx.icon("brain", size=20, color="#00e5ff"),
+                            rx.heading("ConversaSense", size="4", color="white"),
+                            spacing="2"
+                        ),
+                        rx.spacer(),
+                        rx.icon_button(
+                            "x",
+                            on_click=DashboardState.toggle_mobile_menu,
+                            variant="ghost",
+                            size="2"
+                        ),
+                        width="100%",
+                        margin_bottom="4"
+                    ),
+                    
+                    # Botones de navegación principal
+                    nav_button("Dashboard", "layout_dashboard", "Dashboard"),
+                    nav_button("Diagnóstico", "activity", "Diagnóstico"),
+                    nav_button("Intenciones", "list", "Intenciones"),
+                    nav_button("Configuración", "settings", "Configuración"),
+                    
+                    rx.divider(margin_y="4", color="#2a3f55"),
+                    
+                    # Modal y botón de carga drag-and-drop
+                    rx.button(
+                        rx.icon("upload", size=16),
+                        rx.text("Cargar CSV/JSON"),
+                        on_click=DashboardState.toggle_upload_dialog,
+                        color_scheme="cyan",
+                        width="100%",
+                        margin_bottom="4"
+                    ),
+                    
+                    # Selector de Archivo de Inferencia
+                    rx.text("ARCHIVO DE INFERENCIA", size="1", font_weight="bold", color="#8899aa", margin_bottom="1"),
+                    rx.select(
+                        DashboardState.parquet_files,
+                        value=DashboardState.selected_parquet,
+                        on_change=DashboardState.select_parquet_file,
+                        width="100%",
+                        bg="#1a2d42",
+                        border="1px solid #2a3f55",
+                        color="#e0e6ed"
+                    ),
+                    rx.cond(
+                        DashboardState.is_uploading,
+                        rx.button(
+                            rx.spinner(size="1"),
+                            rx.text("Procesando Lote...", size="2"),
+                            disabled=True,
+                            color_scheme="cyan",
+                            variant="outline",
+                            width="100%",
+                            margin_top="2"
+                        ),
+                        rx.button(
+                            rx.icon("refresh_cw", size=14),
+                            rx.text("Reprocesar Lote", size="2"),
+                            on_click=DashboardState.reprocess_current_file,
+                            color_scheme="cyan",
+                            variant="outline",
+                            width="100%",
+                            margin_top="2"
+                        )
+                    ),
+                    
+                    rx.divider(margin_y="4", color="#2a3f55"),
+                    
+                    # Filtros de Contexto
+                    rx.text("FILTROS DE CONTEXTO", size="1", font_weight="bold", color="#8899aa", margin_bottom="2"),
+                    rx.text("Idioma", size="2", color="#e0e6ed"),
+                    rx.select(["ES/EN", "ES", "EN"], value=DashboardState.idioma, width="100%", bg="#1a2d42", border="1px solid #2a3f55", color="#e0e6ed"),
+                    
+                    rx.text("Fecha", size="2", color="#e0e6ed", margin_top="3"),
+                    rx.select(["Todas", "Hoy", "Última Semana"], value=DashboardState.fecha, width="100%", bg="#1a2d42", border="1px solid #2a3f55", color="#e0e6ed"),
+                    
+                    rx.text("Umbral Frustración", size="2", color="#e0e6ed", margin_top="3"),
+                    rx.slider(
+                        default_value=[50.0], 
+                        min=0.0, 
+                        max=100.0, 
+                        on_value_commit=DashboardState.set_umbral, 
+                        width="100%",
+                        color_scheme="lime"
+                    ),
+                    rx.text(f"{DashboardState.umbral_frustracion}%", size="2", color="#76ff03", font_weight="bold"),
+                    
+                    # Real-time System ticker
+                    rx.vstack(
+                        rx.text("SYSTEM STATUS (REAL-TIME)", size="1", color="#8899aa", font_weight="bold"),
+                        rx.hstack(
+                            rx.text("Registros:", size="1", color="#8899aa"),
+                            rx.text(DashboardState.metrics['total_records'], size="1", color="#76ff03", font_weight="bold")
+                        ),
+                        rx.hstack(
+                            rx.text("Inferencia:", size="1", color="#8899aa"),
+                            rx.text(DashboardState.metrics['response_time'], size="1", color="#00e5ff", font_weight="bold")
+                        ),
+                        rx.hstack(
+                            rx.text("Embeddings:", size="1", color="#8899aa"),
+                            rx.text(DashboardState.embeddings_local_path, size="1", color="#76ff03", font_weight="bold", overflow="hidden", text_overflow="ellipsis", white_space="nowrap", max_width="140px")
+                        ),
+                        padding="3",
+                        bg="#1a2d42",
+                        border="1px solid #2a3f55",
+                        border_radius="md",
+                        width="100%",
+                        margin_top="auto",
+                        spacing="1"
+                    ),
+                    align_items="flex-start",
+                    width="100%"
+                ),
+                position="fixed",
+                top="0",
+                left="0",
+                bottom="0",
+                width="280px",
+                bg="#152232",
+                padding="6",
+                border_right="1px solid #2a3f55",
+                z_index="300",
+                overflow_y="auto"
+            )
+        )
     )
 
 def main_content() -> rx.Component:
-    """Contenido principal de la página con renderizado dinámico."""
+    """Contenido principal de la página con renderizado dinámico y márgenes responsivos."""
     return rx.box(
         rx.match(
             DashboardState.current_view,
             ("Dashboard", view_dashboard()),
             ("Diagnóstico", view_diagnostico()),
             ("Intenciones", view_intenciones()),
+            ("Configuración", view_configuracion()),
             view_dashboard()
         ),
         # Logo decorativo Sparkle absoluto en la esquina inferior derecha
@@ -1321,21 +2277,28 @@ def main_content() -> rx.Component:
             right="20px",
             pointer_events="none"
         ),
-        width="100%", 
-        padding="8", 
+        width="auto", 
+        max_width=["100%", "100%", "100%", "calc(100% - 260px)"],
+        padding=["4", "4", "6", "8"], 
         bg="#0f1923", 
         min_height="100vh",
-        position="relative"
+        position="relative",
+        margin_left=["0px", "0px", "0px", "260px"],
+        margin_top=["60px", "60px", "60px", "0px"],
+        overflow_x="hidden"
     )
 
 def index() -> rx.Component:
-    """Punto de entrada de la UI."""
-    return rx.hstack(
+    """Punto de entrada de la UI con layout responsivo que previene desbordes."""
+    return rx.box(
         sidebar(), 
+        mobile_navbar(),
+        mobile_drawer(),
         main_content(), 
         width="100%", 
-        spacing="0", 
-        bg="#0f1923"
+        max_width="100vw",
+        bg="#0f1923",
+        overflow_x="hidden"
     )
 
 app = rx.App(

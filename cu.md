@@ -114,3 +114,64 @@ Para verificar el rediseño completo, la ingesta nativa y el comportamiento reac
      │                                                                        │ promedio del 75.0%..."
 
 ─────────────────────────────────────────────────────────────────────────────────────
+### 🧪 Caso de Uso 5: Configuración MLOps e In-App File Explorer Dialog                                                                              
+
+Este caso de uso valida la correcta interacción de la pantalla de configuración MLOps (Capa Rápida y Capa Profunda), el uso del in-app Folder Picker
+Dialog para autocompletar rutas locales de modelos y las alertas de consistencia de APIs.
+
+ # │ Acciones del Usuario                                                   │ Resultado Esperado (Nivel Usuario)
+───┼────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────
+ 1 │ En el sidebar, selecciona la pestaña Configuración.                    │ Se mostrará la interfaz de Configuración MLOps de Modelos con 3 tarjetas:
+   │                                                                        │ Embeddings, Capa Rápida y Capa Profunda.
+ 2 │ En la tarjeta de la Capa Rápida, haz clic en el icono de carpeta       │ Se abrirá el modal "Explorador de Archivos Local" listando el directorio
+   │ (folder-open) junto al campo de la ruta del modelo.                    │ actual del workspace del backend.
+ 3 │ En el modal, haz doble clic o navega en las carpetas para entrar a      │ El input del modelo de Capa Rápida se autocompletará con la ruta absoluta
+   │  models/  y selecciona el archivo  lgbm_model.pkl .                    │ del archivo PKL seleccionado y el modal se cerrará automáticamente.
+ 4 │ En la tarjeta de la Capa Profunda, selecciona como tipo de ejecución:  │ Aparecerán los botones de selección rápida de modelos recomendados de
+   │ "API (Google GenAI)". Haz clic en el botón  gemini-2.5-flash .         │ Gemini. El input del modelo cambiará a  gemini-2.5-flash  sin alertas.
+ 5 │ Cambia manualmente el valor del input del modelo a  gpt-4o-mini .      │ Aparecerá debajo una alerta roja de advertencia de consistencia indicando
+   │                                                                        │ que los modelos de Google deben comenzar con "models/gemini-" o "gemini-".
+ 6 │ Corrige haciendo clic en el botón  gemini-3.5-flash .                  │ El input se actualizará correctamente y la alerta roja desaparecerá.
+ 7 │ Cambia la Capa Profunda a "API (OpenRouter)" e ingresa en el modelo    │ Aparecerá una alerta roja de consistencia avisando que en OpenRouter no
+   │ el valor  models/deepseek-chat .                                       │ se debe utilizar el prefijo  models/ .
+ 8 │ Haz clic en el botón sugerido  DeepSeek Chat .                         │ El modelo cambiará a  deepseek/deepseek-chat  y la alerta roja
+   │                                                                        │ desaparecerá de inmediato.
+ 9 │ Introduce tu API key en el campo respectivo y haz clic en la sección   │ Se confirmará que los cambios se aplicarán en el próximo reprocesamiento
+   │ de abajo: "Aplicar Configuración de Arquitectura".                     │ de datos y la configuración quedará almacenada en la sesión del servidor.
+──────                                                                                                                                              
+### 🧪 Caso de Uso 6: Diagnóstico de Explicabilidad SHAP y Validación Twin-Pass                                                                       
+
+Este caso de uso valida que el usuario puede analizar el porqué de una clasificación de frustración a través de las variables locales (SHAP)
+y la explicación del LLM verificada por la arquitectura de doble pasada (Twin-Pass).
+
+ # │ Acciones del Usuario                                                   │ Resultado Esperado (Nivel Usuario)
+───┼────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────
+ 1 │ Dirígete a la pestaña Diagnóstico y selecciona una conversación que    │ 1. Se cargará el chat correspondiente con burbujas de diseño oscuro.
+   │ tenga un nivel alto de frustración (ej.  CONV_03  con  75% ).          │ 2. En el panel "Explicabilidad Local (SHAP)" verás el impacto de las
+   │                                                                        │ variables del diálogo que influyeron en la clasificación (ej. número de
+   │                                                                        │ fallos seguidos del bot, mayúsculas del usuario).
+ 2 │ Pasa el mouse o inspecciona las barras de características en el panel  │ Se visualizará qué variables agregaron valor positivo al score (color rojo)
+   │ de SHAP.                                                               │ u omitieron criticidad (color azul), justificando matemáticamente la
+   │                                                                        │ decisión de la Capa Rápida (LightGBM).
+ 3 │ Lee la sección "Razonamiento Cognitivo (Second Pass)" generada por el  │ Verás una explicación textual del flujo que llevó al usuario a la molestia,
+   │ LLM en el panel derecho.                                               │ redactada bajo la técnica Chain-of-Thought (CoT).
+ 4 │ Localiza el indicador de Validación Twin-Pass junto al texto.          │ El indicador mostrará la etiqueta verde  ✓ Verificado (Confianza Alta) 
+   │                                                                        │ confirmando que la doble pasada de verificación no detectó alucinaciones
+   │                                                                        │ y que la justificación coincide con los datos históricos reales.
+──────                                                                                                                                              
+### 🧪 Caso de Uso 7: Simulación de Casos Complejos (Sarcasmo y Abandono Silencioso)                                                                 
+
+Este caso de uso valida la capacidad del enrutamiento híbrido para detectar y clasificar correctamente tipos sofisticados de frustración como
+sarcasmo y abandono sin insultos directos.
+
+ # │ Acciones del Usuario                                                   │ Resultado Esperado (Nivel Usuario)
+───┼────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────
+ 1 │ En el modal de carga, sube un archivo que contenga casos avanzados     │ El pipeline en memoria procesará el archivo y actualizará el dashboard.
+   │ (ej. sarcasmo y abandono silencioso) y procesa la ingesta.             │
+ 2 │ Ve a la pestaña Diagnóstico y selecciona la conversación con sarcasmo  │ El sistema mostrará que LightGBM detectó un score intermedio, cayendo en
+   │ (ej. "¡Excelente! Me borraron la cuenta, son los mejores.").           │ la Zona Gris (0.45 - 0.75), lo que derivó el caso de forma transparente al
+   │                                                                        │ LLM. El LLM clasificó el caso como "Frustrada (1)" explicando el sarcasmo.
+ 3 │ En el selector, elige la conversación con abandono silencioso (el bot  │ El sistema registrará la frustración del usuario en base a las variables
+   │ falla reiteradamente y el usuario corta la conversación sin despedirse)│ heurísticas de abandono. El gráfico SHAP mostrará alta contribución de las
+   │                                                                        │ métricas de inactividad del usuario y fallos del bot.
+─────────────────────────────────────────────────────────────────────────────────────

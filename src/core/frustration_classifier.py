@@ -15,10 +15,23 @@ class FrustrationClassifier:
     """
     
     def __init__(self, model_path: str = "models/lgbm_model.pkl"):
-        self.model_path = model_path
+        # Resolución inteligente de rutas para soportar ejecuciones desde subdirectorios (ej. src/dashboard)
+        if not os.path.isabs(model_path):
+            local_path = os.path.abspath(model_path)
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            root_path = os.path.join(project_root, model_path)
+            
+            if os.path.exists(root_path) and not os.path.exists(local_path):
+                self.model_path = root_path
+            else:
+                self.model_path = local_path
+        else:
+            self.model_path = model_path
+            
         self.model = None
         self.features_cols = None
-        os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
+        if os.path.dirname(self.model_path):
+            os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
         
         # Hiperparámetros optimizados para CPU y prevención de overfitting
         self.params = {
